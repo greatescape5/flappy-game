@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flapty — Tap to Fly</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a1a;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    font-family: 'Courier New', monospace;
+    overflow: hidden;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #game-wrap { position: relative; }
+
+  canvas {
+    display: block;
+    border-radius: 12px;
+    box-shadow: 0 0 60px rgba(120, 80, 255, 0.4), 0 0 120px rgba(120, 80, 255, 0.15);
+    touch-action: manipulation;
+  }
+
+  #ui-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .screen {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    text-align: center;
+    padding: 24px;
+    width: 100%;
+  }
+  .screen.active { display: flex; }
+
+  .title {
+    font-size: 52px; font-weight: 900; letter-spacing: -2px; color: #fff;
+    text-shadow: 0 0 20px rgba(160, 120, 255, 0.8); line-height: 1;
+  }
+  .subtitle {
+    font-size: 13px; letter-spacing: 4px; text-transform: uppercase;
+    color: rgba(255,255,255,0.4);
+  }
+  .cta {
+    margin-top: 10px; font-size: 15px; color: rgba(255,255,255,0.7);
+    letter-spacing: 1px; animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
+
+  .score-big {
+    font-size: 72px; font-weight: 900; color: #fff;
+    text-shadow: 0 0 30px rgba(120, 80, 255, 0.9); line-height: 1;
+  }
+  .label-sm {
+    font-size: 11px; letter-spacing: 4px; text-transform: uppercase;
+    color: rgba(255,255,255,0.35);
+  }
+
+  .btn {
+    padding: 12px 30px; background: rgba(120,80,255,0.25);
+    border: 1px solid rgba(120,80,255,0.6); border-radius: 50px; color: #fff;
+    font-family: 'Courier New', monospace; font-size: 14px; letter-spacing: 2px;
+    cursor: pointer; pointer-events: all; transition: background .2s, box-shadow .2s;
+  }
+  .btn:hover { background: rgba(120,80,255,0.45); box-shadow: 0 0 20px rgba(120,80,255,0.5); }
+  .btn.ghost { background: transparent; border-color: rgba(255,255,255,0.2); color: rgba(255,255,255,0.6); }
+  .btn.ghost:hover { border-color: rgba(255,255,255,0.4); box-shadow: none; }
+
+  .btn-row { display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap; justify-content: center; }
+
+  /* Initials entry */
+  #initials-input {
+    width: 180px; text-align: center; text-transform: uppercase;
+    font-family: 'Courier New', monospace; font-size: 40px; font-weight: 900;
+    letter-spacing: 14px; color: #fff; background: rgba(0,0,0,0.3);
+    border: 2px solid rgba(120,80,255,0.6); border-radius: 10px; padding: 8px 8px 8px 22px;
+    pointer-events: all; caret-color: #a060ff; outline: none;
+  }
+  #initials-input:focus { border-color: #a060ff; box-shadow: 0 0 20px rgba(120,80,255,0.5); }
+
+  /* Leaderboard */
+  .lb-list {
+    list-style: none; width: 260px; margin: 6px 0;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .lb-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 14px; border-radius: 8px; background: rgba(255,255,255,0.04);
+    font-size: 16px; color: #fff;
+  }
+  .lb-row.top { background: rgba(240,192,64,0.12); }
+  .lb-rank { color: rgba(255,255,255,0.4); width: 28px; text-align: left; font-size: 13px; }
+  .lb-row.top .lb-rank { color: #f0c040; }
+  .lb-name { flex: 1; letter-spacing: 3px; font-weight: 700; text-align: left; padding-left: 8px; }
+  .lb-score { font-weight: 900; }
+  .lb-empty { color: rgba(255,255,255,0.3); font-size: 13px; padding: 20px; }
+
+  #live-score {
+    position: absolute; top: 20px; left: 0; right: 0; text-align: center;
+    font-size: 38px; font-weight: 900; color: rgba(255,255,255,0.9);
+    text-shadow: 0 2px 12px rgba(0,0,0,0.5); pointer-events: none; display: none;
+  }
+</style>
+</head>
+<body>
+<div id="game-wrap">
+  <canvas id="c"></canvas>
+
+  <div id="ui-overlay">
+
+    <!-- START -->
+    <div id="start-screen" class="screen active">
+      <div class="title">FLAPTY</div>
+      <div class="subtitle">tap · click · space</div>
+      <div class="cta">tap anywhere to begin</div>
+      <button class="btn ghost" id="view-lb-btn" style="margin-top:20px">★ LEADERBOARD</button>
+    </div>
+
+    <!-- INITIALS ENTRY -->
+    <div id="initials-screen" class="screen">
+      <div class="label-sm">nice run</div>
+      <div class="score-big" id="entry-score">0</div>
+      <div class="subtitle">enter your initials</div>
+      <input id="initials-input" maxlength="3" autocomplete="off" autocapitalize="characters" placeholder="AAA">
+      <button class="btn" id="save-score-btn">SAVE</button>
+    </div>
+
+    <!-- LEADERBOARD -->
+    <div id="lb-screen" class="screen">
+      <div class="label-sm">★ leaderboard ★</div>
+      <ul class="lb-list" id="lb-list"></ul>
+      <div class="btn-row">
+        <button class="btn" id="lb-play-btn">PLAY</button>
+        <button class="btn ghost" id="lb-clear-btn">CLEAR</button>
+      </div>
+    </div>
+
+  </div>
+
+  <div id="live-score">0</div>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = 360, H = 600;
+canvas.width = W; canvas.height = H;
+
+// ---- Leaderboard storage (works on GitHub; may be blocked in some previews) ----
+const LB_KEY = 'flapty_leaderboard';
+function loadLB() {
+  try { return JSON.parse(localStorage.getItem(LB_KEY)) || []; }
+  catch (e) { return []; }
+}
+function saveLB(list) {
+  try { localStorage.setItem(LB_KEY, JSON.stringify(list)); } catch (e) {}
+}
+function addScore(name, sc) {
+  const list = loadLB();
+  list.push({ name: name.toUpperCase(), score: sc });
+  list.sort((a, b) => b.score - a.score);
+  const trimmed = list.slice(0, 10);
+  saveLB(trimmed);
+  return trimmed;
+}
+
+// ---- Game state ----
+let state = 'start'; // start | playing | dead
+let score = 0, frame = 0;
+let bird, pipes, particles, stars;
+
+const BIRD_X = 80, BIRD_R = 14;
+const GRAVITY = 0.38, FLAP = -7.2;
+const PIPE_W = 52, PIPE_GAP = 155, PIPE_SPEED = 2.4, PIPE_INTERVAL = 85;
+
+function makeStars() {
+  stars = Array.from({length: 60}, () => ({
+    x: Math.random()*W, y: Math.random()*H,
+    r: Math.random()*1.4+0.3, a: Math.random()
+  }));
+}
+function resetGame() {
+  bird = { y: H/2, vy: 0, angle: 0, trail: [] };
+  pipes = []; particles = []; score = 0; frame = 0;
+  document.getElementById('live-score').textContent = '0';
+}
+
+// ---- Screen helpers ----
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  if (id) document.getElementById(id).classList.add('active');
+}
+
+// ---- Flap ----
+function flap() {
+  if (state !== 'playing') return;
+  bird.vy = FLAP;
+  for (let i = 0; i < 5; i++) {
+    particles.push({
+      x: BIRD_X, y: bird.y,
+      vx: (Math.random()-0.5)*3-1, vy: (Math.random()-0.5)*3+1,
+      life: 1, r: Math.random()*4+2,
+      color: `hsl(${Math.random()*60+260},80%,70%)`
+    });
+  }
+}
+function startPlaying() {
+  showScreen(null);
+  document.getElementById('live-score').style.display = 'block';
+  state = 'playing';
+  resetGame();
+  bird.vy = FLAP;
+}
+
+// ---- Input ----
+document.addEventListener('keydown', e => {
+  if ((e.code === 'Space' || e.code === 'ArrowUp')) {
+    if (document.activeElement === document.getElementById('initials-input')) return;
+    e.preventDefault();
+    if (state === 'start') startPlaying(); else flap();
+  }
+});
+canvas.addEventListener('pointerdown', () => {
+  if (state === 'start') startPlaying(); else flap();
+});
+
+// Buttons
+document.getElementById('view-lb-btn').onclick = () => { renderLB(); showScreen('lb-screen'); };
+document.getElementById('lb-play-btn').onclick = startPlaying;
+document.getElementById('lb-clear-btn').onclick = () => { saveLB([]); renderLB(); };
+document.getElementById('save-score-btn').onclick = submitInitials;
+document.getElementById('initials-input').addEventListener('keydown', e => {
+  if (e.code === 'Enter') submitInitials();
+});
+
+function submitInitials() {
+  const inp = document.getElementById('initials-input');
+  let name = (inp.value || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3);
+  if (!name) name = '???';
+  addScore(name, score);
+  inp.value = '';
+  renderLB();
+  showScreen('lb-screen');
+}
+
+function renderLB() {
+  const list = loadLB();
+  const ul = document.getElementById('lb-list');
+  ul.innerHTML = '';
+  if (list.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'lb-empty';
+    li.textContent = 'No scores yet — go fly!';
+    ul.appendChild(li);
+    return;
+  }
+  list.forEach((row, i) => {
+    const li = document.createElement('li');
+    li.className = 'lb-row' + (i === 0 ? ' top' : '');
+    li.innerHTML = `<span class="lb-rank">${i+1}</span>` +
+                   `<span class="lb-name">${row.name}</span>` +
+                   `<span class="lb-score">${row.score}</span>`;
+    ul.appendChild(li);
+  });
+}
+
+// ---- Drawing ----
+function drawBackground() {
+  const bg = ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#07071a'); bg.addColorStop(1,'#0e0a2a');
+  ctx.fillStyle = bg; ctx.fillRect(0,0,W,H);
+  stars.forEach(s => {
+    s.a += 0.005;
+    ctx.globalAlpha = 0.3 + 0.3*Math.sin(s.a);
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI*2); ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+}
+function drawGround() {
+  ctx.fillStyle = '#1a1040'; ctx.fillRect(0, H-50, W, 50);
+  ctx.fillStyle = '#2a1a60'; ctx.fillRect(0, H-52, W, 4);
+  ctx.strokeStyle = 'rgba(120,80,255,0.15)'; ctx.lineWidth = 1;
+  for (let x = (frame*PIPE_SPEED)%40; x < W; x += 40) {
+    ctx.beginPath(); ctx.moveTo(x, H-50); ctx.lineTo(x, H); ctx.stroke();
+  }
+}
+function drawPipe(pipe) {
+  const topH = pipe.top, botY = topH + PIPE_GAP, botH = H - 50 - botY;
+  [{y:0,h:topH,capY:topH-18},{y:botY,h:botH,capY:botY}].forEach(({y,h,capY}) => {
+    const grad = ctx.createLinearGradient(pipe.x,0,pipe.x+PIPE_W,0);
+    grad.addColorStop(0,'#1a0f4a'); grad.addColorStop(0.4,'#4a2aaa'); grad.addColorStop(1,'#1a0f4a');
+    ctx.fillStyle = grad; ctx.fillRect(pipe.x, y, PIPE_W, h);
+    ctx.fillStyle = '#5a35cc';
+    ctx.beginPath(); ctx.roundRect(pipe.x-5, capY, PIPE_W+10, 18, 4); ctx.fill();
+    ctx.strokeStyle = 'rgba(160,100,255,0.4)'; ctx.lineWidth = 1.5;
+    ctx.strokeRect(pipe.x, y, PIPE_W, h);
+  });
+}
+function drawBird() {
+  const x = BIRD_X, y = bird.y;
+  bird.trail.forEach((t,i) => {
+    ctx.globalAlpha = (i/bird.trail.length)*0.3;
+    ctx.fillStyle = '#a060ff';
+    ctx.beginPath(); ctx.arc(t.x, t.y, BIRD_R*0.6, 0, Math.PI*2); ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+  const glow = ctx.createRadialGradient(x,y,2,x,y,BIRD_R*2.5);
+  glow.addColorStop(0,'rgba(160,100,255,0.5)'); glow.addColorStop(1,'rgba(160,100,255,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath(); ctx.arc(x,y,BIRD_R*2.5,0,Math.PI*2); ctx.fill();
+  ctx.save(); ctx.translate(x,y); ctx.rotate(bird.angle);
+  const body = ctx.createRadialGradient(-3,-3,2,0,0,BIRD_R);
+  body.addColorStop(0,'#e0c0ff'); body.addColorStop(0.5,'#a060ff'); body.addColorStop(1,'#5020cc');
+  ctx.fillStyle = body;
+  ctx.beginPath(); ctx.arc(0,0,BIRD_R,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(5,-4,4,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#1a0040'; ctx.beginPath(); ctx.arc(6,-4,2,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(7,-5,0.8,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle = 'rgba(180,130,255,0.7)';
+  ctx.beginPath(); ctx.ellipse(-4,3,8,4,-0.3,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+function drawParticles() {
+  particles.forEach(p => {
+    ctx.globalAlpha = p.life; ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r*p.life, 0, Math.PI*2); ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+}
+
+function checkCollision() {
+  const by = bird.y;
+  if (by + BIRD_R > H-50 || by - BIRD_R < 0) return true;
+  for (const p of pipes) {
+    if (BIRD_X + BIRD_R - 4 > p.x && BIRD_X - BIRD_R + 4 < p.x + PIPE_W) {
+      if (by - BIRD_R + 4 < p.top || by + BIRD_R - 4 > p.top + PIPE_GAP) return true;
+    }
+  }
+  return false;
+}
+
+function die() {
+  state = 'dead';
+  document.getElementById('live-score').style.display = 'none';
+  for (let i = 0; i < 20; i++) {
+    const a = (Math.PI*2*i)/20;
+    particles.push({
+      x: BIRD_X, y: bird.y,
+      vx: Math.cos(a)*(Math.random()*5+2), vy: Math.sin(a)*(Math.random()*5+2),
+      life: 1, r: Math.random()*6+3,
+      color: `hsl(${Math.random()*60+260},80%,70%)`
+    });
+  }
+  setTimeout(() => {
+    document.getElementById('entry-score').textContent = score;
+    showScreen('initials-screen');
+    const inp = document.getElementById('initials-input');
+    inp.value = '';
+    // don't auto-focus on mobile (keyboard pop can be jarring); user taps to type
+  }, 600);
+}
+
+function loop() {
+  requestAnimationFrame(loop);
+  frame++;
+  drawBackground();
+
+  if (state === 'playing') {
+    bird.vy += GRAVITY; bird.y += bird.vy;
+    bird.angle = Math.max(-0.5, Math.min(1.2, bird.vy*0.07));
+    bird.trail.push({x:BIRD_X, y:bird.y});
+    if (bird.trail.length > 10) bird.trail.shift();
+
+    if (frame % PIPE_INTERVAL === 0) {
+      const minTop = 60, maxTop = H-50-PIPE_GAP-60;
+      pipes.push({x: W+10, top: Math.random()*(maxTop-minTop)+minTop, passed:false});
+    }
+    pipes.forEach(p => p.x -= PIPE_SPEED);
+    pipes = pipes.filter(p => p.x > -PIPE_W-10);
+    pipes.forEach(p => {
+      if (!p.passed && p.x + PIPE_W < BIRD_X) {
+        p.passed = true; score++;
+        document.getElementById('live-score').textContent = score;
+      }
+    });
+    if (checkCollision()) die();
+  }
+
+  pipes.forEach(drawPipe);
+  drawGround();
+
+  particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.vy += 0.15; p.life -= 0.025; });
+  particles = particles.filter(p => p.life > 0);
+  drawParticles();
+
+  if (state === 'start') {
+    bird.y = H/2 + Math.sin(frame*0.05)*10;
+    bird.angle = Math.sin(frame*0.05)*0.15;
+    drawBird();
+  } else {
+    drawBird();
+  }
+}
+
+makeStars(); resetGame(); loop();
+</script>
+</body>
+</html>
